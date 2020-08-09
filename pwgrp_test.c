@@ -340,7 +340,7 @@ void print_passwd_from_uid(uid_t uid)
 	if ( rc >= 16 )
 		fmtbuf[15] = '\0';
 	const char *uidstr = fmtbuf;
-	print_group_from_gid_2(uid, uidstr);
+	print_passwd_from_uid_2(uid, uidstr);
 }
 
 int prefix_match(const char *maybe_prefix, const char *full_text)
