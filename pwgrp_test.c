@@ -180,10 +180,8 @@ int handle_errors(int pwgrp_return_code, const char *function_name)
 		return; \
 	}
 
-void print_group(struct  nfsutil_group_query  group_query, const char *key)
+void print_group(struct group *grp, const char *key)
 {
-	struct group  *grp;
-	grp = nfsutil_grp_query_result(&group_query);
 	if ( grp == NULL )
 		printf("group entry not found for group '%s'\n", key);
 	else
@@ -195,9 +193,46 @@ void print_group(struct  nfsutil_group_query  group_query, const char *key)
 		for ( ssize_t i = 0; members[i] != NULL; i++ )
 		{
 			const char *member = members[i];
-			printf("  member[%ld]: %s\n", i, member);
+			printf("  member[%ld]: %s\n", i, null_alt(member, "<NULL>"));
 		}
 	}
+}
+
+static int attempt_clone_group(
+	struct group **grp,
+	struct nfsutil_group_query group_query,
+	const char *key)
+{
+	// We could have instead just called print_group like so:
+	//print_group(group_query, group_name);
+	// or
+	//print_group(group_query, gidstr);
+	//
+	// But we should test our copying functions.
+	// So let's try to persist the group object beyond cleanup:
+	struct group *orig_grp = nfsutil_grp_query_result(&group_query);
+	struct group *clone_grp;
+	int err = nfsutil_clone_group(&clone_grp, orig_grp);
+	if ( err == ENOMEM )
+		printf("Out of membory error while cloning the 'group' struct for group '%s'.\n", key);
+	else if ( err != 0 )
+		printf("Unknown error while cloning the 'group' struct for group '%s'.\n", key);
+
+	if ( err )
+	{
+		// It didn't work, but we can still print some information (in addition
+		// to the earlier error messages) using the still-valid original struct
+		// that is allocated in the query instance.
+		printf("\n");
+		print_group(orig_grp, key);
+		*grp = NULL;
+		return err;
+	}
+
+	// If all went well, the caller will get around to calling 'print_group'
+	// later on, after they have cleaned up the query object.
+	*grp = clone_grp;
+	return err;
 }
 
 void print_group_from_name(const char *group_name)
@@ -222,8 +257,18 @@ void print_group_from_name(const char *group_name)
 		HANDLE_ERRORS(err, nfsutil_grp_query_cleanup(&group_query))
 	}
 
-	print_group(group_query, group_name);
+	struct group *grp;
+	err = attempt_clone_group(&grp, group_query, group_name);
+
 	nfsutil_grp_query_cleanup(&group_query);
+
+	// If the cloning was successful, then we now have a mallocated group
+	// object that we should print and then free.
+	if ( !err ) {
+		print_group(grp, group_name);
+		if ( grp )
+			free(grp);
+	}
 }
 
 void print_group_from_gid_2(gid_t gid, const char *gidstr)
@@ -247,8 +292,18 @@ void print_group_from_gid_2(gid_t gid, const char *gidstr)
 		HANDLE_ERRORS(err, nfsutil_grp_query_cleanup(&group_query))
 	}
 
-	print_group(group_query, gidstr);
+	struct group *grp;
+	err = attempt_clone_group(&grp, group_query, gidstr);
+
 	nfsutil_grp_query_cleanup(&group_query);
+
+	// If the cloning was successful, then we now have a mallocated group
+	// object that we should print and then free.
+	if ( !err ) {
+		print_group(grp, gidstr);
+		if ( grp )
+			free(grp);
+	}
 }
 
 void print_group_from_gid(gid_t gid)
@@ -261,10 +316,8 @@ void print_group_from_gid(gid_t gid)
 	print_group_from_gid_2(gid, gidstr);
 }
 
-void print_passwd(struct  nfsutil_passwd_query  passwd_query, const char *key)
+void print_passwd(struct passwd *pw, const char *key)
 {
-	struct passwd  *pw;
-	pw = nfsutil_pw_query_result(&passwd_query);
 	if ( pw == NULL )
 		printf("passwd entry not found for user '%s'\n", key);
 	else
@@ -280,6 +333,43 @@ void print_passwd(struct  nfsutil_passwd_query  passwd_query, const char *key)
 		printf("\n");
 		print_group_from_gid(pw->pw_gid);
 	}
+}
+
+static int attempt_clone_passwd(
+	struct passwd **pw,
+	struct nfsutil_passwd_query passwd_query,
+	const char *key)
+{
+	// We could have instead just called print_passwd like so:
+	//print_passwd(passwd_query, login_name);
+	// or
+	//print_passwd(passwd_query, uidstr);
+	//
+	// But we should test our copying functions.
+	// So let's try to persist the passwd object beyond cleanup:
+	struct passwd *orig_pw = nfsutil_pw_query_result(&passwd_query);
+	struct passwd *clone_pw;
+	int err = nfsutil_clone_passwd(&clone_pw, orig_pw);
+	if ( err == ENOMEM )
+		printf("Out of memory error while cloning the 'passwd' struct for user '%s'.\n", key);
+	else if ( err != 0 )
+		printf("Unknown error while cloning the 'passwd' struct for user '%s'.\n", key);
+
+	if ( err )
+	{
+		// It didn't work, but we can still print some information (in addition
+		// to the earlier error messages) using the still-valid original struct
+		// that is allocated in the query instance.
+		printf("\n");
+		print_passwd(orig_pw, key);
+		*pw = NULL;
+		return err;
+	}
+
+	// If all went well, the caller will get around to calling 'print_passwd'
+	// later on, after they have cleaned up the query object.
+	*pw = clone_pw;
+	return err;
 }
 
 void print_passwd_from_name(const char *login_name)
@@ -304,8 +394,18 @@ void print_passwd_from_name(const char *login_name)
 		HANDLE_ERRORS(err, nfsutil_pw_query_cleanup(&passwd_query))
 	}
 
-	print_passwd(passwd_query, login_name);
+	struct passwd *pw;
+	err = attempt_clone_passwd(&pw, passwd_query, login_name);
+
 	nfsutil_pw_query_cleanup(&passwd_query);
+
+	// If the cloning was successful, then we now have a mallocated passwd
+	// object that we should print and then free.
+	if ( !err ) {
+		print_passwd(pw, login_name);
+		if ( pw )
+			free(pw);
+	}
 }
 
 void print_passwd_from_uid_2(uid_t uid, const char *uidstr)
@@ -329,8 +429,18 @@ void print_passwd_from_uid_2(uid_t uid, const char *uidstr)
 		HANDLE_ERRORS(err, nfsutil_pw_query_cleanup(&passwd_query))
 	}
 
-	print_passwd(passwd_query, uidstr);
+	struct passwd *pw;
+	err = attempt_clone_passwd(&pw, passwd_query, uidstr);
+
 	nfsutil_pw_query_cleanup(&passwd_query);
+
+	// If the cloning was successful, then we now have a mallocated passwd
+	// object that we should print and then free.
+	if ( !err ) {
+		print_passwd(pw, uidstr);
+		if ( pw )
+			free(pw);
+	}
 }
 
 void print_passwd_from_uid(uid_t uid)

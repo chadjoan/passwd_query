@@ -687,3 +687,204 @@ void nfsutil_grp_query_cleanup(struct nfsutil_group_query *query)
 {
 	buf_query_cleanup((struct buffered_query **)&query->internals);
 }
+
+// ----- other misc helper functions -----
+static size_t nullsafe_strlen(const char *s)
+{
+	if ( s == NULL )
+		return 0;
+	else
+		return strlen(s);
+}
+
+size_t nfsutil_passwd_string_size(const struct passwd *pw)
+{
+	if ( pw == NULL )
+		return 0;
+
+	size_t result = 0;
+	result += nullsafe_strlen(pw->pw_name) + 1;
+	result += nullsafe_strlen(pw->pw_dir) + 1;
+	result += nullsafe_strlen(pw->pw_shell) + 1;
+	return result;
+}
+
+size_t nfsutil_passwd_total_size(const struct passwd *pw)
+{
+	if ( pw == NULL )
+		return 0;
+
+	size_t result = sizeof(struct passwd);
+	result += nfsutil_passwd_string_size(pw);
+	return result;
+}
+
+size_t nfsutil_group_string_size(const struct group *grp)
+{
+	if ( grp == NULL )
+		return 0;
+
+	size_t result = 0;
+
+	// Group name.
+	result += nullsafe_strlen(grp->gr_name) + 1;
+
+	if ( grp->gr_mem )
+	{
+		char **members = grp->gr_mem;
+		size_t i;
+
+		// Size of all strings pointed to by the members array.
+		for ( i = 0; members[i] != NULL; i++ )
+			result += nullsafe_strlen(members[i]);
+
+		// Size of the array itself. The "+ 1" is for the NULL element at the end.
+		result += ((char*)((members + i) + 1) - (char*)(members));
+	}
+
+	return result;
+}
+
+size_t nfsutil_group_total_size(const struct group *grp)
+{
+	if ( grp == NULL )
+		return 0;
+
+	size_t result = sizeof(struct group);
+	result += nfsutil_group_string_size(grp);
+	return result;
+}
+
+// Copies the contents of `src` into `*dst_buffer_cursor`, then updates
+// `dst_buffer_cursor` to point to the character after the copied
+// string's null-terminating character ('\0').
+//
+// If `src` is NULL, `dst_buffer_cursor` will not be modified.
+//
+// Returns a pointer to the start of the copied string, or NULL if `src`
+// is NULL.
+static char *buffered_copy(char **dst_buffer_cursor, const char *src)
+{
+	if ( src == NULL )
+		return NULL;
+
+	char *result = *dst_buffer_cursor;
+	*dst_buffer_cursor = stpcpy(*dst_buffer_cursor, src) + 1;
+	return result;
+}
+
+struct passwd *nfsutil_copy_passwd(
+		struct       passwd *pw_to,
+		const struct passwd *pw_from,
+		char *string_buffer
+	)
+{
+	char *cursor = string_buffer;
+
+	// Ensure that any gaps or unused portions of the struct are filled
+	// with something predictable.
+	memset(pw_to, 0, sizeof(*pw_to));
+
+	// Now do the deep copy.
+	pw_to->pw_name  = buffered_copy(&cursor, pw_from->pw_name);
+	pw_to->pw_uid   = pw_from->pw_uid;
+	pw_to->pw_gid   = pw_from->pw_gid;
+	pw_to->pw_dir   = buffered_copy(&cursor, pw_from->pw_dir);
+	pw_to->pw_shell = buffered_copy(&cursor, pw_from->pw_shell);
+	return pw_to;
+}
+
+int nfsutil_clone_passwd(
+		struct       passwd **pw_to,
+		const struct passwd *pw_from
+	)
+{
+	if ( pw_from == NULL )
+	{
+		*pw_to = NULL;
+		return 0;
+	}
+
+	size_t alloc_size = nfsutil_passwd_total_size(pw_from);
+	char *str_buffer;
+	void *buffer = malloc(alloc_size);
+	if ( buffer == NULL )
+		return ENOMEM;
+
+	*pw_to = buffer;
+	str_buffer = buffer;
+	str_buffer += sizeof(**pw_to);
+	nfsutil_copy_passwd(*pw_to, pw_from, str_buffer);
+	return 0;
+}
+
+struct group *nfsutil_copy_group(
+		struct       group *grp_to,
+		const struct group *grp_from,
+		char *string_buffer
+	)
+{
+	char *cursor = string_buffer;
+
+	// Ensure that any gaps or unused portions of the struct are filled
+	// with something predictable.
+	memset(grp_to, 0, sizeof(*grp_to));
+
+	// Now do the deep copy.
+	grp_to->gr_name  = buffered_copy(&cursor, grp_from->gr_name);
+	grp_to->gr_gid   = grp_from->gr_gid;
+
+	// Members array...
+	if ( grp_from->gr_mem == NULL )
+		grp_to->gr_mem = NULL;
+	else
+	{
+		char *cursor_before = cursor;
+		char **members_from = grp_from->gr_mem;
+		char **members_to   = (char**)cursor;
+
+		// Allocate the array by placing the cursor at the end of the array.
+		// The "+ 1" is to allocate room for the NULL element at the end.
+		size_t len = 0;
+		while ( members_from[len] != NULL )
+			len++;
+
+		cursor = (char*)((members_to + len) + 1);
+
+		// Now that the array is allocated, allocate and copy all of the
+		// strings while populating the array elements with pointers to
+		// those string copies.
+		size_t i;
+		for ( i = 0; i < len; i++ )
+			members_to[i] = buffered_copy(&cursor, members_from[i]);
+		members_to[len] = NULL;
+
+		grp_to->gr_mem = members_to;
+	}
+
+	return grp_to;
+}
+
+int nfsutil_clone_group(
+		struct       group **grp_to,
+		const struct group *grp_from
+	)
+{
+	if ( grp_from == NULL )
+	{
+		*grp_to = NULL;
+		return 0;
+	}
+
+	size_t alloc_size = nfsutil_group_total_size(grp_from);
+	char *str_buffer;
+	void *buffer = malloc(alloc_size);
+	if ( buffer == NULL )
+		return ENOMEM;
+
+	*grp_to = buffer;
+	str_buffer = buffer;
+	str_buffer += sizeof(**grp_to);
+	nfsutil_copy_group(*grp_to, grp_from, str_buffer);
+	return 0;
+}

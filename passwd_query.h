@@ -355,7 +355,10 @@ int nfsutil_grp_query_call_getgrgid_r(
 /// or `nfsutil_grp_query_cleanup` are called. So if the caller needs to
 /// persist these data past any calls to query cleanup functions, the caller
 /// should perform a deep copy of these objects into longer-lasting memory
-/// regions.
+/// regions. For an easy way to perform this deep copy, or to clone the
+/// returned `passwd` struct, see the `nfsutil_copy_passwd`,
+/// `nfsutil_copy_group`, `nfsutil_clone_passwd`, or `nfsutil_clone_group`
+/// functions.
 ///
 /// Returns: NULL if no querying function was previously called, NULL if
 ///   there was no entry found during the previous query, or a pointer
@@ -382,5 +385,134 @@ void nfsutil_pw_query_cleanup(struct nfsutil_passwd_query *query);
 
 /// ditto
 void nfsutil_grp_query_cleanup(struct nfsutil_group_query *query);
+
+
+/// Calculates the size, in bytes, of memory required to store all of the
+/// string data that the `pw` struct references, including null-terminating
+/// characters ('\0').
+///
+/// If any of `pw`'s string fields point to NULL, those fields will contribute
+/// zero (nothing) to the final tally. This represents the notion that if the
+/// `pw` struct were to be copied, no additional memory would be required for
+/// storing such values.
+///
+/// Returns 0 if `pw` is NULL.
+size_t nfsutil_passwd_string_size(const struct passwd *pw);
+
+/// Calculates the size, in bytes, of all memory directly or indirectly
+/// referenced by the given `pw` pointer.
+///
+/// This is effectively the sum of `sizeof(struct passwd)` and the result
+/// of calling `nfsutil_passwd_string_size(pw)`.
+///
+/// Returns 0 if `pw` is NULL.
+size_t nfsutil_passwd_total_size(const struct passwd *pw);
+
+
+/// Calculates the size, in bytes, of memory required to store all of the
+/// string data that the `grp` struct references, including null-terminating
+/// characters ('\0').
+///
+/// This calculation includes the space required to store the members array,
+/// as well as that array's terminal NULL element.
+///
+/// If any of `grp`'s string fields point to NULL, those fields will contribute
+/// zero (nothing) to the final tally. This represents the notion that if the
+/// `grp` struct were to be copied, no additional memory would be required for
+/// storing such values.
+///
+/// Returns 0 if `grp` is NULL.
+size_t nfsutil_group_string_size(const struct group *grp);
+
+/// Calculates the size, in bytes, of all memory directly or indirectly
+/// referenced by the given `grp` pointer.
+///
+/// This is effectively the sum of `sizeof(struct group)` and the result
+/// of calling `nfsutil_group_string_size(grp)`.
+///
+/// Returns 0 if `grp` is NULL.
+size_t nfsutil_group_total_size(const struct group *grp);
+
+/// The `nfsutil_copy_passwd` function performs a deep copy of `pw_from` into
+/// `pw_to`. Any string data referenced by `pw_from` is copied into the
+/// given `string_buffer`, and `pw_to` will have its corresponding string
+/// fields populated with pointers to the copied strings in `string_buffer`
+///
+/// `string_buffer` must be large enough to hold all of the strings copied
+/// from the `pw_from` object. This size can be precisely determined by
+/// calling the `nfsutil_passwd_string_size` function with the `passwd` struct
+/// that will be passed into this function's `pw_from` parameter.
+/// If allocating enough space to store the `passwd` struct that `pw_to`
+/// points to in addition to the strings, consider using
+/// `nfsutil_passwd_total_size`, but ensure that `string_buffer` points to
+/// empty buffer space (e.g. after `pw_to`) and not to the `pw_to` object.
+///
+/// This function assumes that both the `pw_to` and `pw_from` parameters
+/// are not NULL.
+///
+/// Returns the `pw_to` pointer after populating `pw_to` and `string_buffer`
+/// with the contents of `pw_from`.
+///
+struct passwd *nfsutil_copy_passwd(
+		struct       passwd *pw_to,
+		const struct passwd *pw_from,
+		char *string_buffer
+	);
+
+/// Clones the `passwd` struct pointed to by `pw_from` by allocating the
+/// necessary memory (as returned by `nfsutil_passwd_total_size`) in one
+/// contiguous block with a single call to `malloc` and then using
+/// `nfsutil_copy_passwd` to copy the contents of `pw_from` into `*pw_to`.
+///
+/// If `pw_from` is NULL, then no allocation will be done,
+/// NULL will be written to `*pw_to`, and 0 will be returned.
+///
+/// Returns: 0 upon succes, or ENOMEM if the necessary memory could not be
+///   allocated using a single call to `malloc`.
+int nfsutil_clone_passwd(
+		struct       passwd **pw_to,
+		const struct passwd *pw_from
+	);
+
+/// The `nfsutil_copy_group` function performs a deep copy of `grp_from` into
+/// `grp_to`. Any string data referenced by `grp_from` is copied into the
+/// given `string_buffer`, and `grp_to` will have its corresponding string
+/// fields populated with pointers to the copied strings in `string_buffer`
+///
+/// `string_buffer` must be large enough to hold all of the strings copied
+/// from the `grp_from` object. This size can be precisely determined by
+/// calling the `nfsutil_group_string_size` function with the `group` struct
+/// that will be passed into this function's `grp_from` parameter.
+/// If allocating enough space to store the `group` struct that `grp_to`
+/// points to in addition to the strings, consider using
+/// `nfsutil_group_total_size`, but ensure that `string_buffer` points to
+/// empty buffer space (e.g. after `grp_to`) and not to the `grp_to` object.
+///
+/// This function assumes that both the `grp_to` and `grp_from` parameters
+/// are not NULL.
+///
+/// Returns the `grp_to` pointer after populating `grp_to` and `string_buffer`
+/// with the contents of `grp_from`.
+///
+struct group *nfsutil_copy_group(
+		struct       group *grp_to,
+		const struct group *grp_from,
+		char *string_buffer
+	);
+
+/// Clones the `group` struct pointed to by `grp_from` by allocating the
+/// necessary memory (as returned by `nfsutil_group_total_size`) in one
+/// contiguous block with a single call to `malloc` and then using
+/// `nfsutil_copy_group` to copy the contents of `grp_from` into `*grp_to`.
+///
+/// If `grp_from` is NULL, then no allocation will be done,
+/// NULL will be written to `*grp_to`, and 0 will be returned.
+///
+/// Returns: 0 upon succes, or ENOMEM if the necessary memory could not be
+///   allocated using a single call to `malloc`.
+int nfsutil_clone_group(
+		struct       group **grp_to,
+		const struct group *grp_from
+	);
 
 #endif /* PASSWD_QUERY_H */
