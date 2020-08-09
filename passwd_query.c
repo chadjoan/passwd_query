@@ -1,3 +1,38 @@
+/*
+ *  passwd_query.c
+ *
+ *  Types and functions that improve upon standard passwd and group
+ *  retrieval functions such as getpwnam_r and getgrnam_r.
+ *
+ *  Copyright (c) 2020 Chad Joan <chadjoan@gmail.com>
+ *  All rights reserved.
+ *
+ *  Redistribution and use in source and binary forms, with or without
+ *  modification, are permitted provided that the following conditions
+ *  are met:
+ *
+ *  1. Redistributions of source code must retain the above copyright
+ *     notice, this list of conditions and the following disclaimer.
+ *  2. Redistributions in binary form must reproduce the above copyright
+ *     notice, this list of conditions and the following disclaimer in the
+ *     documentation and/or other materials provided with the distribution.
+ *  3. Neither the name of the University nor the names of its
+ *     contributors may be used to endorse or promote products derived
+ *     from this software without specific prior written permission.
+ *
+ *  THIS SOFTWARE IS PROVIDED ``AS IS'' AND ANY EXPRESS OR IMPLIED
+ *  WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF
+ *  MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+ *  DISCLAIMED. IN NO EVENT SHALL THE REGENTS OR CONTRIBUTORS BE LIABLE
+ *  FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+ *  CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+ *  SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR
+ *  BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF
+ *  LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING
+ *  NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS
+ *  SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+ */
+
 #include <errno.h>
 #include <grp.h>
 #include <pwd.h>
@@ -9,6 +44,9 @@
 
 #include "passwd_query.h"
 
+// This struct stores results and tracks memory-management related metadata
+// for the functions in this module that query system functions such as
+// `getpwnam_r` and `getgrgid_r`.
 struct buffered_query
 {
 	// Number of bytes allocated to this nfsutil_passwd_query object.
@@ -44,47 +82,14 @@ struct buffered_query
 	// this memory space, ex: for returning statically-positioned structs
 	// or returning the remaining untyped portion.
 	char     buffer_start[];
-
-	/*
-	// This union allows the query object to store either passwd or group
-	// information, depending on what the caller requested.
-	//
-	// This struct is modified by functions like `getpwnam_r`.
-	// In all cases it is effectively the returned data.
-	//
-	union u
-	{
-		// The POSIX functions such as `getpwnam_r` and `getpwuid_r`
-		// require both a structure (`passwd` or `group`) and a buffer
-		// of memory in their parameter list. The structure is used to
-		// store the results of the function call, and the buffer memory
-		// holds any strings or other dynamic data that is pointed to
-		// from within the aforementioned structures.
-		//
-		// There are simple structs within this union, and those are used
-		// to pair each result struct with a flexible array that denotes
-		// where its corresponding buffer memory begins.
-		//
-		// In other words, the buffer's beginning location will change
-		// depending on which role (passwd vs group) the query object
-		// is serving.
-
-		struct s1 {
-			struct passwd  pw;
-			char           buffer[];
-		}
-		passwd;
-
-		struct s2 {
-			struct group   grp;
-			char           buffer[];
-		}
-		group;
-
-	}
-	results;
-	*/
 };
+
+#define PWQ_INSTANCE_SIZE   (sizeof(struct buffered_query) + sizeof(struct passwd))
+#define PWQ_RESULTS_BUFFER_SIZE_MIN   (512)
+#define PWQ_MEMORY_DEMAND   (PWQ_INSTANCE_SIZE + PWQ_RESULTS_BUFFER_SIZE_MIN)
+#define GRPQ_INSTANCE_SIZE  (sizeof(struct buffered_query) + sizeof(struct group))
+#define GRPQ_RESULTS_BUFFER_SIZE_MIN  (512)
+#define GRPQ_MEMORY_DEMAND  (GRPQ_INSTANCE_SIZE + GRPQ_RESULTS_BUFFER_SIZE_MIN)
 
 // ----- generic buffered query memory partitioning -----
 
@@ -122,7 +127,7 @@ static struct buffer_region
 //
 // The rest of the data returned by `getpwnam_r` and `getpwuid_r` is stored in
 // the rest of the query object's memory buffer, which is accessible through
-// the `passwd_query_get_bufptr` and `passwd_query_get_buflen` functions.
+// the `passwd_query_get_buffer` function.
 static struct passwd *passwd_query_get_passwd(struct buffered_query *query)
 {
 	return (struct passwd*)query->buffer_start;
@@ -142,15 +147,23 @@ static struct buffer_region
 }
 
 // ----- group query memory partitioning -----
-/*
-TODO: documentation
-*/
 
+// Returns a pointer to the region of the query's memory that contains the
+// `group` struct. This struct is modified by the `getgrnam_r` and
+// `getgrgid_r` functions, and is effectively part of their return value.
+//
+// The rest of the data returned by `getgrnam_r` and `getgrgid_r` is stored in
+// the rest of the query object's memory buffer, which is accessible through
+// the `group_query_get_buffer` function.
 static struct group *group_query_get_group(struct buffered_query *query)
 {
 	return (struct group*)query->buffer_start;
 }
 
+// Returns a the region of the query's memory that is not occupied by the
+// `group` struct. This region is used by functions like `getgrnam_r`
+// and `getgrgid_r` to store dynamic data related to the struct they return,
+// such as string data that is referenced by the `group` struct.
 static struct buffer_region
 	group_query_get_buffer(struct buffered_query *query)
 {
@@ -160,38 +173,12 @@ static struct buffer_region
 	return buf;
 }
 
-
-#define PWQ_INSTANCE_SIZE   (sizeof(struct buffered_query) + sizeof(struct passwd))
-#define PWQ_RESULTS_BUFFER_SIZE_MIN   (512)
-#define PWQ_MEMORY_DEMAND   (PWQ_INSTANCE_SIZE + PWQ_RESULTS_BUFFER_SIZE_MIN)
-#define GRPQ_INSTANCE_SIZE  (sizeof(struct buffered_query) + sizeof(struct group))
-#define GRPQ_RESULTS_BUFFER_SIZE_MIN  (512)
-#define GRPQ_MEMORY_DEMAND  (GRPQ_INSTANCE_SIZE + GRPQ_RESULTS_BUFFER_SIZE_MIN)
-
-/*
-struct group_query_private
-{
-	size_t         allocation_size;
-	char           *bufptr;
-	size_t         buflen;
-	struct group   group_buffer;
-	uint8_t        buffer_needs_freeing;
-	int            return_code;
-	
-};
-*/
-
-/*
-static size_t pw_query_results_buffer_size(struct buffered_query *query)
-{
-	return (query->allocation_size) - sizeof(struct buffered_query);
-}
-*/
+// ----- query initialization functions -----
 
 static void buf_query_populate(
-	struct buffered_query *query,
-	size_t   alloc_size,
-	uint8_t  own_allocation
+		struct buffered_query *query,
+		size_t   alloc_size,
+		uint8_t  own_allocation
 	)
 {
 	// Gently encourage determinism.
@@ -220,16 +207,6 @@ static int buf_query_mallocate_if_needed(struct buffered_query **query, size_t m
 	return 0;
 }
 
-/*
-static pw_query_zero(struct buffered_query *query)
-{
-	size_t resbufsz = pw_query_results_buffer_size(query);
-	query->return_code = 0;
-	memset(&query->passwd_buffer, 0, sizeof(query->passwd_buffer));
-	memset(&query->results_buffer, 0, sizeof(query->results_buffer));
-}
-*/
-
 static void buf_query_init(
 		struct buffered_query  **query,
 		void    *optional_stack_memory,
@@ -257,51 +234,7 @@ static void buf_query_init(
 	}
 }
 
-//
-// Example usage:
-//
-// void my_func(const char *login_name)
-// {
-// #define OOM_MESSAGE ("Out of memory error while attempting to retrieve passwd entry for user %s\n")
-//     char[PASSWD_STACKMEM_SIZE_HINT]  bufptr;
-//     size_t  buflen = PASSWD_STACKMEM_SIZE_HINT;
-//     struct  nfsutil_passwd_query  passwd_query;
-//     int     err = -1;
-//
-//     nfsutil_pw_query_init(&passwd_query);
-//
-//     while ( err != 0 )
-//     {
-//         err = nfsutil_pw_query_call_getpwnam_r(&passwd_query, login_name);
-//         if ( err == EINTR )
-//             continue;
-//         else
-//         if ( err == ENOMEM ) {
-//             printf(OOM_MESSAGE, login_name);
-//             nfsutil_pw_query_cleanup(&passwd_query);
-//             return;
-//         }
-//         else
-//         if ( err == EIO ) {
-//             printf("I/O error during getpwnam_r: %s\n", strerror(err));
-//             nfsutil_pw_query_cleanup(&passwd_query);
-//             return;
-//         }
-//         else
-//         ... etc ...
-//     }
-//
-//     struct passwd  *pw;
-//     pw = nfsutil_pw_query_result(&passwd_query);
-//     ... do things with `pw` ...
-//
-//     nfsutil_pw_query_cleanup(&passwd_query);
-//     // Everything should be done by this point; `pw` is now invalid.
-//
-//     return;
-// #undefine OOM_MESSAGE
-// }
-//
+// public definitions:
 void  nfsutil_pw_query_init(
 	struct nfsutil_passwd_query  *query,
 	void    *optional_stack_memory,
@@ -536,49 +469,50 @@ static int buf_query_realloc_upsize(struct buffered_query **query)
 	return 0;
 }
 
-/*
-TODO: update docs!
-*/
-
-
-// This function implements a reallocation loop in a reusable manner.
+// The `buf_query_realloc_loop` function implements a reallocation loop
+// that can be shared and reused by any code specializing the
+// `struct buffered_query` type.
+//
 // It will call a caller-supplied function, named as the `query_runner`
-// parameter, and if that function requires more memory, it will call
-// it over again repeatedly while increasing the size of provided memory
-// until `query_runner` can complete without exhausting memory.
+// parameter. If that function fails to complete because it requires more
+// memory, `buf_query_realloc_loop` will repeatedly increase the size of
+// the provided query's memory and each time will call `query_runner` with
+// these updated and enlarged query objects. This is continued until
+// `query_runner` can complete without exhausting the query's memory.
 //
-// `bufptr` and `buflen` are pointers to a caller-supplied
-// initial memory buffer, which is usually going to be sized according to
-// some best-effort guess at what will cover the vast majority of cases,
-// and is usually going to be allocated from part of the stack.
-// `realloc_loop` will update the values pointed to by these as reallocation
-// happens. The caller may need this information to update its own pointers
-// or size measurements if the initial buffer was moved.
+// The `struct buffered_query **query` parameter has an extra level of
+// indirection to allow `buf_query_realloc_loop` to update the pointer
+// to the query object in the event that the query object is moved
+// during a reallocation.
 //
-// The `query_runner` function pointer shall point to a function that calls
-// whatever function needs a memory buffer allocated for it.
-// The `caller_context` allows the caller to pass data into the
+// The `struct buffered_query **query` must be non-NULL.
+// However, `*query` may be NULL. This indicates that the query's internals
+// have not been allocated yet. In that situation, `buf_query_realloc_loop`
+// will use `malloc` to allocate a new `buffered_query` object and will then
+// initialize it before proceeding with any querying actions. The value of
+// `query` is then updated so that the pointer it points to will point to
+// the newly allocated query object.
+//
+// The `caller_context` parameter allows the caller to pass data into the
 // `query_runner` function, such as any non-buffer arguments to the
-// underlying system function.
+// underlying system function (ex: name, uid, gid).
 //
-// `query_runner` may be called multiple times if the provided buffer (described
-// by the `bufptr` and `buflen` pair) was not large enough for `query_runner`
-// to complete its task. The `query_runner` function shall set the value pointed
-// to by the `memory_shortage` argument to -1 if it failed due to
-// an insufficiently large buffer, or to 0 if the buffer was large enough
-// to complete the call. Positive values of `*memory_shortage` can be used
-// to indicate how much memory is needed, though this is currently not implemented.
+// The `query_runner` function shall set the value pointed to by the
+// `memory_shortage` argument to -1 if it failed due to an insufficiently
+// large buffer, or to 0 if the buffer was large enough to complete the call.
+// Positive values of `*memory_shortage` could be used to indicate how much
+// memory is needed, but this is currently not implemented.
 //
 // The integer returned from `query_runner` shall be whatever return code the
 // underlying function returned, including unhandled error codes.
-// The `realloc_loop` function will then return that integer value to the caller.
+// The `buf_query_realloc_loop` function will then return that integer value
+// to the caller.
 //
-// Thus, `realloc_loop` returns whatever `query_runner` returns after
-// `query_runner` has been provided with enough memory (through `bufptr`
-// and `buflen`) to finish executing completely (whether successful or not).
-// `realloc_loop` may additionally return ENOMEM if an out-of-memory condition
-// was encountered while attempting to enlarge the buffer it send to the
-// `query_runner` function.
+// Thus, `buf_query_realloc_loop` returns whatever `query_runner` returns after
+// `query_runner` has been provided with enough memory to finish executing
+// completely (whether successful or not). `buf_query_realloc_loop` may
+// additionally return ENOMEM if an out-of-memory condition was encountered
+// while attempting to enlarge the buffer it sent to the `query_runner` function.
 //
 static int buf_query_realloc_loop(
 		void    *caller_context,
@@ -624,70 +558,33 @@ static int buf_query_realloc_loop(
 	
 }
 
-// Searches the system's `passwd` file/database for the entry corresponding
-// to the given `login_name`.
+// ----- public querying interface(s) -----
+
+// Notably, we don't use "sysconf(_SC_GETPW_R_SIZE_MAX)" (or similar)
+// anywhere in these functions. That's because it is likely to return
+// either -1 (which isn't helpful, but is at least honest) or
+// some wild guess (which is misleading and requires us to realloc-loop ANYWAYS).
+// As of this writing (2020-08-07), musl libc does the former.
+// Supposedly, glibc does the latter.
+// The real-life implications are what caused this bug report:
+// https://bugzilla.linux-nfs.org/show_bug.cgi?id=344
 //
-// This function (along with the `nfsutil_passwd_query` object) handles
-// all of the memory allocation needs of `getpwnam_r`, including reallocation
-// if initial buffer sizes are not sufficient.
-//
-// Return values are the same as for `getpwnam_r`, with the addition of
-// `ENOMEM`, which is returned if memory reallocation (by `realloc`) fails.
-//
-// See `nfsutil_pw_query_init` for a usage example.
-//
-// For more details, see the `getpwnam_r` documentation:
-// https://pubs.opengroup.org/onlinepubs/9699919799/functions/getpwnam.html
-//
+// This all means that the optimal strat involves completely ignoring
+// sysconf and instead directly proceeding to use a realloc-loop,
+// because we would need to do that regardless.
+
+// See the header for more specific documentation on these functions.
 int nfsutil_pw_query_call_getpwnam_r(
 		struct nfsutil_passwd_query  *query,
 		const char  *login_name
 	)
 {
-	// Notably, we don't use "sysconf(_SC_GETPW_R_SIZE_MAX)" anywhere in this
-	// function. That's because it is likely to return either
-	// -1 (which isn't helpful, but is at least honest) or
-	// some wild guess (which is misleading and requires us to realloc-loop ANYWAYS).
-	// As of this writing (2020-08-07), musl libc does the former.
-	// Supposedly, glibc does the latter.
-	// The real-life implications are what caused this bug report:
-	// https://bugzilla.linux-nfs.org/show_bug.cgi?id=344
-	//
-	// This all means that the optimal strat involves completely ignoring
-	// sysconf and instead directly proceeding to use a realloc-loop,
-	// because we would need to do that regardless.
-	//
-	// Now then, onwards!
-/*
-	// getpwnam_r likes to return this pointer. It is just about
-	// redundant with the other arguments in every way except for one:
-	// it can be used to indicate the lookup was a "success" but there
-	// were no entries matching the given request.
-	// Otherwise, it's just going to point to the passwd struct we give it,
-	// and it otherwise indicates errors, but return_code also does that.
-	struct passwd *result;
-
-	// This holds getpwnam_r's return code (or error code).
-	int  return_code;
-	
-	call the thing(sdljkafsdjk)
-*/
 	union pwgrp_key  key;
 	key.as_name = login_name;
 
 	return buf_query_realloc_loop(&key,
 		(struct buffered_query **)&query->internals,
 		PWQ_MEMORY_DEMAND, &call_getpwnam_r);
-/*
-	if ( result == NULL ) {
-		query_->entry_exists = 0;
-		memset(&query_->passwd_buffer, 0, sizeof(query_->passwd_buffer));
-	}
-	else
-		query_->entry_exists = 1;
-
-	return return_code;
-*/
 }
 
 int nfsutil_pw_query_call_getpwuid_r(
@@ -729,6 +626,7 @@ int nfsutil_grp_query_call_getgrgid_r(
 		GRPQ_MEMORY_DEMAND, &call_getgrgid_r);
 }
 
+// ----- functions for retrieving query results -----
 struct passwd *nfsutil_pw_query_result(struct nfsutil_passwd_query *query)
 {
 	if ( query->internals == NULL )
@@ -757,6 +655,7 @@ struct group *nfsutil_grp_query_result(struct nfsutil_group_query *query)
 	}
 }
 
+// ----- cleanup functions -----
 static void buf_query_cleanup(struct buffered_query **query)
 {
 	if ( *query == NULL )

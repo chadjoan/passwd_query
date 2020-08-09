@@ -10,7 +10,7 @@
 
 #include "passwd_query.h"
 
-const char *null_alt(const char *str, const char *alt)
+static const char *null_alt(const char *str, const char *alt)
 {
 	if ( str != NULL )
 		return str;
@@ -18,12 +18,11 @@ const char *null_alt(const char *str, const char *alt)
 		return alt;
 }
 
-// This function is not as well generalized or factored as the others.
-// Nonetheless, I am keeping it around because it most closely reflects
+// These functions are not as well generalized or factored as the others.
+// Nonetheless, I am keeping them around because they most closely reflect
 // the example code in the documentation.
-void print_info(const char *login_name)
+static void example_print_passwd(const char *login_name)
 {
-#define OOM_MESSAGE  ("Out of memory error while attempting to retrieve passwd entry for user %s\n")
 	char    bufptr[PASSWD_STACKMEM_SIZE_HINT];
 	size_t  buflen = PASSWD_STACKMEM_SIZE_HINT;
 	struct  nfsutil_passwd_query  passwd_query;
@@ -38,7 +37,8 @@ void print_info(const char *login_name)
 			continue;
 		else
 		if ( err == ENOMEM ) {
-			printf(OOM_MESSAGE, login_name);
+			printf("Out of memory error while attempting to retrieve passwd entry for user %s\n",
+				login_name);
 			nfsutil_pw_query_cleanup(&passwd_query);
 			return;
 		}
@@ -49,13 +49,13 @@ void print_info(const char *login_name)
 			return;
 		}
 		else
+		//... etc ...
 		if ( err != 0 )
 		{
 			printf("Unhandled error from getpwnam_r: %s\n", strerror(err));
 			nfsutil_pw_query_cleanup(&passwd_query);
 			return;
 		}
-		//... etc ...
 	}
 
 	struct passwd  *pw;
@@ -64,20 +64,80 @@ void print_info(const char *login_name)
 		printf("passwd entry not found for user '%s'\n", login_name);
 	else
 	{
+		// ... do things with `pw` ...
 		printf("passwd entry for '%s':\n", login_name);
 		printf("  name:  %s\n", null_alt(pw->pw_name, "<NULL>"));
 		printf("  uid:   %d\n", pw->pw_uid);
 		printf("  gid:   %d\n", pw->pw_gid);
 		printf("  dir:   %s\n", null_alt(pw->pw_dir, "<NULL>"));
 		printf("  shell: %s\n", null_alt(pw->pw_shell, "<NULL>"));
-		// ... do things with `pw` ...
 	}
 
 	nfsutil_pw_query_cleanup(&passwd_query);
 	// Everything should be done by this point; `pw` is now invalid.
 
 	return;
-#undef OOM_MESSAGE
+}
+
+static void example_print_group(const char *group_name)
+{
+	char    bufptr[GROUP_STACKMEM_SIZE_HINT];
+	size_t  buflen = GROUP_STACKMEM_SIZE_HINT;
+	struct  nfsutil_group_query  group_query;
+	int     err = -1;
+
+	nfsutil_grp_query_init(&group_query, bufptr, buflen);
+
+	while ( err != 0 )
+	{
+		err = nfsutil_grp_query_call_getgrnam_r(&group_query, group_name);
+		if ( err == EINTR )
+			continue;
+		else
+		if ( err == ENOMEM ) {
+			printf("Out of memory error while attempting to retrieve group entry for group %s\n",
+				group_name);
+			nfsutil_grp_query_cleanup(&group_query);
+			return;
+		}
+		else
+		if ( err == EIO ) {
+			printf("I/O error during getpwnam_r: %s\n", strerror(err));
+			nfsutil_grp_query_cleanup(&group_query);
+			return;
+		}
+		else
+		//... etc ...
+		if ( err != 0 )
+		{
+			printf("Unhandled error from getpwnam_r: %s\n", strerror(err));
+			nfsutil_grp_query_cleanup(&group_query);
+			return;
+		}
+	}
+
+	struct group  *grp;
+	grp = nfsutil_grp_query_result(&group_query);
+	if ( grp == NULL )
+		printf("group entry not found for group '%s'\n", group_name);
+	else
+	{
+		// ... do things with `grp` ...
+		printf("group entry for '%s':\n", group_name);
+		printf("  name:     %s\n", null_alt(grp->gr_name, "<NULL>"));
+		printf("  gid:      %d\n", grp->gr_gid);
+		char **members = grp->gr_mem;
+		for ( ssize_t i = 0; members[i] != NULL; i++ )
+		{
+			const char *member = members[i];
+			printf("  member[%ld]: %s\n", i, null_alt(member, "<NULL>"));
+		}
+	}
+
+	nfsutil_grp_query_cleanup(&group_query);
+	// Everything should be done by this point; `grp` is now invalid.
+
+	return;
 }
 
 #define  RESPONSE_SUCCESS  (0)
@@ -334,8 +394,8 @@ int main(int argc, const char **argv)
 	size_t id;
 
 	if ( argc == 2 )
-		print_info(argv[1]);
-		//print_info("chad");
+		//example_print_passwd(argv[1]);
+		example_print_group(argv[1]);
 	else
 	if ( argc == 3 )
 	{
