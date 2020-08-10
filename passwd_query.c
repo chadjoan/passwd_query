@@ -192,18 +192,23 @@ static void buf_query_populate(
 // Returns 0 upon success, or ENOMEM to indicate an out-of-memory condition.
 static int buf_query_mallocate_if_needed(struct buffered_query **query, size_t memory_demand_guess)
 {
-	// Non-NULL indicates that nfsutil_pw_query_init already found memory for it.
+	// Non-NULL indicates that buf_query_init already found memory for it.
 	if ( *query != NULL )
 		return 0;
 
 	// *query == NULL
 	// Which means that mallocation is needed.
-	*query = malloc(memory_demand_guess);
-	if ( *query == NULL )
+	struct buffered_query *result_query;
+	result_query = malloc(memory_demand_guess);
+	if ( result_query == NULL )
 		return ENOMEM;
 
 	size_t own_allocation = 1;
-	buf_query_populate(*query, memory_demand_guess, own_allocation);
+	buf_query_populate(result_query, memory_demand_guess, own_allocation);
+
+	// By delaying this assignment until the end of the function, we can ensure
+	// that *query never points to uninitialized data.
+	*query = result_query;
 	return 0;
 }
 
@@ -214,12 +219,14 @@ static void buf_query_init(
 		size_t  memory_demand_guess
 	)
 {
+	struct buffered_query *result_query;
+
 	// Use stack memory if available, otherwise malloc.
 	if ( optional_stack_memory && (stack_memory_size > memory_demand_guess) )
 	{
-		*query = optional_stack_memory;
+		result_query = optional_stack_memory;
 		size_t own_allocation = 0;
-		buf_query_populate(*query, stack_memory_size, own_allocation);
+		buf_query_populate(result_query, stack_memory_size, own_allocation);
 	}
 	else
 	{
@@ -230,8 +237,12 @@ static void buf_query_init(
 		// in (probably) one place.)
 		// This is done my ensuring that query->internals is a
 		// predictable value; NULL in this case.
-		*query = NULL;
+		result_query = NULL;
 	}
+
+	// By delaying this assignment until the end of the function, we can ensure
+	// that *query never points to uninitialized data.
+	*query = result_query;
 }
 
 // public definitions:
@@ -438,6 +449,11 @@ static int buf_query_realloc_upsize(struct buffered_query **query)
 	void *oldptr = *query;
 	void *newptr = NULL;
 
+	// This code is intended to avoid assigning anything to *query until
+	// any (re)allocation has already succeeded. We would violate the
+	// promises made in the `nfsutil_*_query_cleanup` functions if we allowed
+	// *query to point to an invalid memory location or set it to NULL when
+	// it should point to memory that it owns.
 	if ( !(*query)->own_allocation )
 	{
 		// Memory was not allocated by us. It might be stack memory or something.
@@ -532,10 +548,11 @@ static int buf_query_realloc_loop(
 		return oom;
 
 	ssize_t memory_shortage = 0;
+	int return_code = 0;
 	while (1)
 	{
-		// Attempt to perform the action that requires variable memory.
-		int return_code = query_runner(
+		// Attempt to run the query with the memory allocated so far.
+		return_code = query_runner(
 				caller_context, *query, &memory_shortage);
 
 		if ( memory_shortage != 0 ) {
@@ -543,19 +560,18 @@ static int buf_query_realloc_loop(
 			oom = buf_query_realloc_upsize(query);
 			if ( oom )
 				return oom;
+
+			// ... and try again.
 			continue;
 		}
 		else
-		if ( return_code != 0 ) {
-			// Other errors: it's the caller's responsibility.
-			return return_code;
-		}
-		else {
-			// Success!
+		{
+			// Errors or not, everything else is the caller's responsibility.
 			break;
 		}
 	}
-	
+
+	return return_code;
 }
 
 // ----- public querying interface(s) -----
@@ -809,7 +825,10 @@ int nfsutil_clone_passwd(
 	char *str_buffer;
 	void *buffer = malloc(alloc_size);
 	if ( buffer == NULL )
+	{
+		*pw_to = NULL;
 		return ENOMEM;
+	}
 
 	*pw_to = buffer;
 	str_buffer = buffer;
@@ -880,7 +899,10 @@ int nfsutil_clone_group(
 	char *str_buffer;
 	void *buffer = malloc(alloc_size);
 	if ( buffer == NULL )
+	{
+		*grp_to = NULL;
 		return ENOMEM;
+	}
 
 	*grp_to = buffer;
 	str_buffer = buffer;

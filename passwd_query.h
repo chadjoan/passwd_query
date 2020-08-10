@@ -269,7 +269,10 @@ void  nfsutil_grp_query_init(
 /// if initial buffer sizes are not sufficient.
 ///
 /// Return values are the same as for `getpwnam_r`, with the addition of
-/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails.
+/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails,
+/// and the subtraction of `ERANGE` (buffer size insufficient), which this
+/// function mitigates by increasing an internal buffer as large as is
+/// required.
 ///
 /// See `nfsutil_pw_query_init` for a usage example.
 ///
@@ -290,7 +293,10 @@ int nfsutil_pw_query_call_getpwnam_r(
 /// if initial buffer sizes are not sufficient.
 ///
 /// Return values are the same as for `getpwuid_r`, with the addition of
-/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails.
+/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails,
+/// and the subtraction of `ERANGE` (buffer size insufficient), which this
+/// function mitigates by increasing an internal buffer as large as is
+/// required.
 ///
 /// See `nfsutil_pw_query_init` for a usage example.
 ///
@@ -311,7 +317,10 @@ int nfsutil_pw_query_call_getpwuid_r(
 /// if initial buffer sizes are not sufficient.
 ///
 /// Return values are the same as for `getgrnam_r`, with the addition of
-/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails.
+/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails,
+/// and the subtraction of `ERANGE` (buffer size insufficient), which this
+/// function mitigates by increasing an internal buffer as large as is
+/// required.
 ///
 /// See `nfsutil_grp_query_init` for a usage example.
 ///
@@ -332,7 +341,10 @@ int nfsutil_grp_query_call_getgrnam_r(
 /// if initial buffer sizes are not sufficient.
 ///
 /// Return values are the same as for `getgrgid_r`, with the addition of
-/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails.
+/// `ENOMEM`, which is returned if memory (re)allocation (by `realloc`) fails,
+/// and the subtraction of `ERANGE` (buffer size insufficient), which this
+/// function mitigates by increasing an internal buffer as large as is
+/// required.
 ///
 /// See `nfsutil_grp_query_init` for a usage example.
 ///
@@ -377,6 +389,11 @@ struct group *nfsutil_grp_query_result(struct nfsutil_group_query *query);
 /// The query functions will never attempt to free stack memory, or any
 /// other forms of caller-allocated memory, and will only free memory that
 /// the query owns (e.g. from having called `malloc` or `realloc` internally).
+///
+/// These are also safe to call if an earlier function failed by returning
+/// an ENOMEM error code. The query object (and/or its reference) will
+/// contain the information needed for the cleanup function to know if
+/// earlier exceptions prevented allocation or not.
 ///
 /// To avoid potential memory leaks, these cleanup functions should always
 /// be called after any work involving query objects has concluded.
@@ -467,6 +484,10 @@ struct passwd *nfsutil_copy_passwd(
 /// If `pw_from` is NULL, then no allocation will be done,
 /// NULL will be written to `*pw_to`, and 0 will be returned.
 ///
+/// If `nfsutil_clone_passwd` does not return 0, NULL will always be
+/// written to `*pw_to`, as this will always indicate some form of
+/// allocation failure.
+///
 /// Returns: 0 upon succes, or ENOMEM if the necessary memory could not be
 ///   allocated using a single call to `malloc`.
 int nfsutil_clone_passwd(
@@ -507,6 +528,10 @@ struct group *nfsutil_copy_group(
 ///
 /// If `grp_from` is NULL, then no allocation will be done,
 /// NULL will be written to `*grp_to`, and 0 will be returned.
+///
+/// If `nfsutil_clone_group` does not return 0, NULL will always be
+/// written to `*grp_to`, as this will always indicate some form of
+/// allocation failure.
 ///
 /// Returns: 0 upon succes, or ENOMEM if the necessary memory could not be
 ///   allocated using a single call to `malloc`.
