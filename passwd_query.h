@@ -59,6 +59,16 @@
 /// `stack_memory_size` parameters.
 #define GROUP_STACKMEM_SIZE_HINT  (1024)
 
+/// The `PWGRP_KEYTYPE_*` definitions are used to describe the type of
+/// lookup performed to any functions accepting a stringized key.
+#define PWGRP_KEYTYPE_USERNAME   (1)
+#define PWGRP_KEYTYPE_UID        (2) /// ditto
+#define PWGRP_KEYTYPE_GROUPNAME  (3) /// ditto
+#define PWGRP_KEYTYPE_GID        (4) /// ditto
+
+/// The integer type for `PWGRP_KEYTYPE` constants.
+#define pwgrp_keytype_t          int8_t
+
 /// This object stores return values and memory management state used
 /// by the functions in this module that wrap the `getpwnam_r` and
 /// `getpwuid_r` functions.
@@ -450,6 +460,7 @@ size_t nfsutil_group_string_size(const struct group *grp);
 /// Returns 0 if `grp` is NULL.
 size_t nfsutil_group_total_size(const struct group *grp);
 
+
 /// The `nfsutil_copy_passwd` function performs a deep copy of `pw_from` into
 /// `pw_to`. Any string data referenced by `pw_from` is copied into the
 /// given `string_buffer`, and `pw_to` will have its corresponding string
@@ -539,5 +550,194 @@ int nfsutil_clone_group(
 		struct       group **grp_to,
 		const struct group *grp_from
 	);
+
+
+/// Structure used by functions that return only uid+gid information
+/// for a passwd query.
+struct nfsutil_passwd_ints
+{
+	uid_t  uid;
+	gid_t  gid;
+	int    err;
+};
+
+/// Structure used by functions that return only gid information
+/// for a group query.
+struct nfsutil_group_ints
+{
+	gid_t  gid;
+	int    err;
+};
+
+/// Convenience functions that retrieve the uid and gid associated with the
+/// given `user_name` or `uid`.
+///
+/// These are useful if the caller does not require `passwd` entry's
+/// string information. Obtaining only the integer information (uid and gid)
+/// does not require using an `nfsutil_passwd_query` object or doing
+/// any memory management.
+///
+/// If errors occur, or no entry is found with that `user_name` or `uid`,
+/// then the return value's `uid` and `gid` field are set to `(uid_t)(-1)`
+/// and `(gid_t)(-1)`, respectively.
+///
+/// The return value has an `err` field to indicate if errors occurred;
+/// this is set to whatever the underlying call to `getpwnam_r` or `getpwuid_r`,
+/// returned, or to ENOENT if a matching entry does not exist.
+///
+/// If the returned value has a non-zero `err` field, then the caller should
+/// not use the returned `uid` or `gid` fields.
+///
+/// These functions do not require the caller to perform any memory management-
+/// related tasks. That is all handled internally with an `nfsutil_passwd_query`
+/// object and related functions.
+///
+struct nfsutil_passwd_ints
+	nfsutil_getpwnam_ints(const char *user_name);
+
+/// ditto
+struct nfsutil_passwd_ints
+	nfsutil_getpwuid_ints(uid_t uid);
+
+/// Convenience functions for retrieving the `passwd` struct matching the
+/// given `user_name` or `uid`.
+///
+/// If the resulting struct (`*pw`) was not set to NULL, then the caller is
+/// responsible for calling `free` on that struct pointer when they are done
+/// using it.
+///
+/// The `pw` parameter should be passed a pointer to a variable that the caller
+/// wishes to populate with a new `passwd` struct pointer, like so:
+///
+///   struct passwd *pw;
+///   int err = nfsutil_getpwnam_struct(&pw, user_name);
+///   ... error handling ...
+///   if (pw) {
+///       ... use `pw` ...
+///       free(pw);
+///   }
+///
+/// If an error occurs during the lookup, or there is no entry matching the
+/// the given `user_name` or `uid`, then `*pw` will be set to NULL.
+///
+/// Returns: the return value of the underlying `getpwnam_r` function,
+///          or ENOENT if a corresponding entry did not exist.
+///
+int nfsutil_getpwnam_struct(struct passwd **pw, const char *user_name);
+int nfsutil_getpwuid_struct(struct passwd **pw,  uid_t uid); /// ditto
+
+/// Convenience function that retrieves the gid associated with
+/// the given `group_name`.
+///
+/// This is useful if the caller does not require the `group` entry's
+/// string information. Obtaining only the integer information (the gid)
+/// does not require using an `nfsutil_group_query` object or doing
+/// any memory management.
+///
+/// If errors occur, or no entry is found with that `group_name`, then
+/// the return value's `gid` field is set to `(gid_t)(-1)`.
+///
+/// The return value has an `err` field to indicate if errors occurred;
+/// this is set to whatever the underlying call to `getgrnam_r` returned,
+/// or to ENOENT if a matching entry does not exist.
+///
+/// If the returned value has a non-zero `err` field, then the caller should
+/// not use the returned `gid` field.
+///
+/// This function does not require the caller to perform any memory management-
+/// related tasks. That is all handled internally with an `nfsutil_group_query`
+/// object and related functions.
+///
+struct nfsutil_group_ints
+	nfsutil_getgrnam_ints(const char *group_name);
+
+/// There is probably no reason to ever call this. It is used for retrieving
+/// the group's gid, but if you call this, you already have the gid.
+/// For now, this function merely exists for symmetry purposes, or in case
+/// there ends up being some corner-case where getgruid_r returns a different
+/// gid than what it was asked to find, and that behavior is somehow desired
+/// (or needs to be tested).
+struct nfsutil_group_ints
+	nfsutil_getgrgid_ints(gid_t gid);
+
+/// Convenience functions for retrieving the `group` struct matching the
+/// given `group_name` or `gid`.
+///
+/// If the resulting struct (`*grp`) was not set to NULL, then the caller is
+/// responsible for calling `free` on that struct pointer when they are done
+/// using it.
+///
+/// The `grp` parameter should be passed a pointer to a variable that the caller
+/// wishes to populate with a new `group` struct pointer, like so:
+///
+///   struct group *grp;
+///   int err = nfsutil_getgrnam_struct(&grp, group_name);
+///   ... error handling ...
+///   if (grp) {
+///       ... use `grp` ...
+///       free(grp);
+///   }
+///
+/// If an error occurs during the lookup, or there is no entry matching the
+/// the given `group_name` or `gid`, then `*grp` will be set to NULL.
+///
+/// Returns: the return value of the underlying `getgrnam_r` function,
+///          or ENOENT if a corresponding entry did not exist.
+///
+int nfsutil_getgrnam_struct(struct group **grp, const char *group_name);
+int nfsutil_getgrgid_struct(struct group **grp,  gid_t gid); /// ditto
+
+/// `nfsidmap_print_pwgrp_error` prints error messages resulting from
+/// `get**nam_r` and `get***id_r` functions using the following format:
+/// "${in_function}: Error happened while looking up ${key_name} '${key_value}'"
+///     "${rel_entry_before}${rel_entry_value}${rel_entry_after}': <error message>"
+///
+/// This function uses the IDMAP_LOG macro (at log level 0) to print the
+/// error messages, and is thus specific to the nfsidmap portion of nfs_utils.
+/// (Ideally, this could be used by any code, but creating a callback for such
+/// a macro does not seem to have an obvious|humane solutions. Improvements welcome.)
+///
+/// The `rel_entry_*` parameters are for describing a value that is related
+/// to the key that was used in the lookup. Since these lookups tend to be used
+/// for mapping one identifier to another (ex: domain user to local user),
+/// it might make sense to fill this with the thing being mapped to the local
+/// user/group. Be sure to always include appropriate punctuation or spaces
+/// at the beginning of `rel_entry_before` or at the end of `rel_entry_after`.
+/// This will always be preceded by a single quote ('\'') and followed by
+/// either a colon (':') or space character (' ').
+///
+/// If any of `rel_entry_before`, `rel_entry_value`, and/or `rel_entry_after`
+/// are NULL, then these NULL values will be replaced with "" before formatting.
+///
+/// It is possible that functions calling this function may print different
+/// messages for any of these errors before calling this function. This might
+/// seem redundant, but if those error messages predated this function, then
+/// keeping them around is a way to avoid unnecessarily changing the error
+/// messages produced by nfsidmap (so as to be less likely to break any
+/// software that might scan for these messages).
+///
+/// When handling ENOMEM, this function will use a stack-allocated buffer to
+/// format the error string before sending it to IDMAP_LOG. This should work
+/// as long as there is remaining stack space and IDMAP_LOG doesn't (directly
+/// or indirectly) call malloc/realloc/calloc (or at least doesn't allocate
+/// more than what's left). The caller should still try to free as much memory
+/// as possible before calling this function (within reason).
+///
+void nfsidmap_print_pwgrp_error(
+		ssize_t     err,
+		const char  *in_function,
+		const char  *key_name, // Ex: "user name", "local name", "uid", "gid", etc.
+		const char  *key_value,
+		const char  *rel_entry_before, // Ex: " for Static entry with name '", " in domain '", etc
+		const char  *rel_entry_value,  // Ex: "foo@bar", "your_domain_here" 
+		const char  *rel_entry_after   // Ex: "'", or put (NULL|"") if you're not using a related entry.
+	);
+
+
+/// Unittests
+/// (Sorry, there doesn't seem to be any unittest build for nfs-utils, so you'll
+/// have to call them manually from a testing program to see if they pass.)
+void test__format_expansion_length(void);
+void test__escape_fmtspec_inplace(void); /// ditto
 
 #endif /* PASSWD_QUERY_H */

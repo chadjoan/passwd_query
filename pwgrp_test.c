@@ -198,6 +198,22 @@ void print_group(struct group *grp, const char *key)
 	}
 }
 
+void print_group_ints(struct nfsutil_group_ints  grp_ints, const char *key)
+{
+	if ( grp_ints.err == ENOENT )
+		printf("group entry not found for group '%s'\n", key);
+	else
+	if ( grp_ints.err )
+		printf("group entry for group '%s' can't be retrieved due to errors.\n", key);
+	else
+	{
+		printf("group entry (abridged) for '%s':\n", key);
+		printf("  gid:   %d\n", grp_ints.gid);
+
+		printf("\n");
+	}
+}
+
 static int attempt_clone_group(
 	struct group **grp,
 	struct nfsutil_group_query group_query,
@@ -213,10 +229,6 @@ static int attempt_clone_group(
 	struct group *orig_grp = nfsutil_grp_query_result(&group_query);
 	struct group *clone_grp;
 	int err = nfsutil_clone_group(&clone_grp, orig_grp);
-	if ( err == ENOMEM )
-		printf("Out of membory error while cloning the 'group' struct for group '%s'.\n", key);
-	else if ( err != 0 )
-		printf("Unknown error while cloning the 'group' struct for group '%s'.\n", key);
 
 	if ( err )
 	{
@@ -240,31 +252,26 @@ void print_group_from_name(const char *group_name)
 	char    bufptr[GROUP_STACKMEM_SIZE_HINT];
 	size_t  buflen = GROUP_STACKMEM_SIZE_HINT;
 	struct  nfsutil_group_query  group_query;
-	int     err = -1;
 
 	nfsutil_grp_query_init(&group_query, bufptr, buflen);
 
-	while ( err != 0 )
-	{
+	int err;
+	do {
 		err = nfsutil_grp_query_call_getgrnam_r(&group_query, group_name);
-		if ( err == ENOMEM )
-		{
-			printf("Out of memory error while attempting to retrieve group entry for group with name %s\n",
-				group_name);
-			nfsutil_grp_query_cleanup(&group_query);
-			return;
-		}
-		HANDLE_ERRORS(err, nfsutil_grp_query_cleanup(&group_query))
-	}
+	} while ( err == EINTR );
 
 	struct group *grp;
-	err = attempt_clone_group(&grp, group_query, group_name);
+	int oom = attempt_clone_group(&grp, group_query, group_name);
+	if ( oom )
+		err = oom;
 
 	nfsutil_grp_query_cleanup(&group_query);
 
 	// If the cloning was successful, then we now have a mallocated group
 	// object that we should print and then free.
-	if ( !err ) {
+	if ( err )
+		nfsidmap_print_pwgrp_error(err, "print_group_from_name", "group name", group_name, "", "", "");
+	else {
 		print_group(grp, group_name);
 		if ( grp )
 			free(grp);
@@ -276,30 +283,26 @@ void print_group_from_gid_2(gid_t gid, const char *gidstr)
 	char    bufptr[GROUP_STACKMEM_SIZE_HINT];
 	size_t  buflen = GROUP_STACKMEM_SIZE_HINT;
 	struct  nfsutil_group_query  group_query;
-	int     err = -1;
 
 	nfsutil_grp_query_init(&group_query, bufptr, buflen);
 
-	while ( err != 0 )
-	{
+	int err;
+	do {
 		err = nfsutil_grp_query_call_getgrgid_r(&group_query, gid);
-		if ( err == ENOMEM )
-		{
-			printf("Out of memory error while attempting to retrieve group entry for group with ID %d\n", gid);
-			nfsutil_grp_query_cleanup(&group_query);
-			return;
-		}
-		HANDLE_ERRORS(err, nfsutil_grp_query_cleanup(&group_query))
-	}
+	} while ( err == EINTR );
 
 	struct group *grp;
-	err = attempt_clone_group(&grp, group_query, gidstr);
+	int oom = attempt_clone_group(&grp, group_query, gidstr);
+	if ( oom )
+		err = oom;
 
 	nfsutil_grp_query_cleanup(&group_query);
 
 	// If the cloning was successful, then we now have a mallocated group
 	// object that we should print and then free.
-	if ( !err ) {
+	if ( err )
+		nfsidmap_print_pwgrp_error(err, "print_group_from_gid", "group with ID", gidstr, "", "", "");
+	else {
 		print_group(grp, gidstr);
 		if ( grp )
 			free(grp);
@@ -332,6 +335,23 @@ void print_passwd(struct passwd *pw, const char *key)
 
 		printf("\n");
 		print_group_from_gid(pw->pw_gid);
+	}
+}
+
+void print_passwd_ints(struct nfsutil_passwd_ints  pw_ints, const char *key)
+{
+	if ( pw_ints.err == ENOENT )
+		printf("passwd entry not found for user '%s'\n", key);
+	else
+	if ( pw_ints.err )
+		printf("passwd entry for user '%s' can't be retrieved due to errors.\n", key);
+	else
+	{
+		printf("passwd entry (abridged) for '%s':\n", key);
+		printf("  uid:   %d\n", pw_ints.uid);
+		printf("  gid:   %d\n", pw_ints.gid);
+
+		printf("\n");
 	}
 }
 
@@ -377,31 +397,26 @@ void print_passwd_from_name(const char *login_name)
 	char    bufptr[PASSWD_STACKMEM_SIZE_HINT];
 	size_t  buflen = PASSWD_STACKMEM_SIZE_HINT;
 	struct  nfsutil_passwd_query  passwd_query;
-	int     err = -1;
 
 	nfsutil_pw_query_init(&passwd_query, bufptr, buflen);
 
-	while ( err != 0 )
-	{
+	int err;
+	do {
 		err = nfsutil_pw_query_call_getpwnam_r(&passwd_query, login_name);
-		if ( err == ENOMEM )
-		{
-			printf("Out of memory error while attempting to retrieve passwd entry for user %s\n",
-				login_name);
-			nfsutil_pw_query_cleanup(&passwd_query);
-			return;
-		}
-		HANDLE_ERRORS(err, nfsutil_pw_query_cleanup(&passwd_query))
-	}
+	} while ( err == EINTR );
 
 	struct passwd *pw;
-	err = attempt_clone_passwd(&pw, passwd_query, login_name);
+	int oom = attempt_clone_passwd(&pw, passwd_query, login_name);
+	if ( oom )
+		err = oom;
 
 	nfsutil_pw_query_cleanup(&passwd_query);
 
 	// If the cloning was successful, then we now have a mallocated passwd
 	// object that we should print and then free.
-	if ( !err ) {
+	if ( err )
+		nfsidmap_print_pwgrp_error(err, "print_passwd_from_name", "user name", login_name, "", "", "");
+	else {
 		print_passwd(pw, login_name);
 		if ( pw )
 			free(pw);
@@ -413,30 +428,26 @@ void print_passwd_from_uid_2(uid_t uid, const char *uidstr)
 	char    bufptr[PASSWD_STACKMEM_SIZE_HINT];
 	size_t  buflen = PASSWD_STACKMEM_SIZE_HINT;
 	struct  nfsutil_passwd_query  passwd_query;
-	int     err = -1;
 
 	nfsutil_pw_query_init(&passwd_query, bufptr, buflen);
 
-	while ( err != 0 )
-	{
+	int err;
+	do {
 		err = nfsutil_pw_query_call_getpwuid_r(&passwd_query, uid);
-		if ( err == ENOMEM )
-		{
-			printf("Out of memory error while attempting to retrieve passwd entry for user with ID %d\n", uid);
-			nfsutil_pw_query_cleanup(&passwd_query);
-			return;
-		}
-		HANDLE_ERRORS(err, nfsutil_pw_query_cleanup(&passwd_query))
-	}
+	} while ( err == EINTR );
 
 	struct passwd *pw;
-	err = attempt_clone_passwd(&pw, passwd_query, uidstr);
+	int oom = attempt_clone_passwd(&pw, passwd_query, uidstr);
+	if ( oom )
+		err = oom;
 
 	nfsutil_pw_query_cleanup(&passwd_query);
 
 	// If the cloning was successful, then we now have a mallocated passwd
 	// object that we should print and then free.
-	if ( !err ) {
+	if ( err )
+		nfsidmap_print_pwgrp_error(err, "print_passwd_from_uid", "user with ID", uidstr, "", "", "");
+	else {
 		print_passwd(pw, uidstr);
 		if ( pw )
 			free(pw);
@@ -503,6 +514,9 @@ int main(int argc, const char **argv)
 {
 	size_t id;
 
+	test__format_expansion_length();
+	test__escape_fmtspec_inplace();
+
 	if ( argc == 2 )
 		//example_print_passwd(argv[1]);
 		example_print_group(argv[1]);
@@ -539,12 +553,131 @@ int main(int argc, const char **argv)
 		}
 	}
 	else
+	if ( argc == 4 )
+	{
+		const char *table = argv[1];
+		const char *reqs  = argv[2];
+		const char *key   = argv[3];
+
+		if ( prefix_match(table, "passwd") )
+		{
+			int err;
+			if ( prefix_match(reqs, "ints") )
+			{
+				struct nfsutil_passwd_ints pw_ints;
+				if ( to_uint_arg(key, &id) )
+				{
+					uid_t  uid = id;
+					pw_ints = nfsutil_getpwuid_ints(uid);
+					err = pw_ints.err;
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test passwd ints", "user with ID", key, "", "", "");
+				}
+				else
+				{
+					pw_ints = nfsutil_getpwnam_ints(key);
+					err = pw_ints.err;
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test passwd ints", "user name", key, "", "", "");
+				}
+
+				if ( !err )
+					print_passwd_ints(pw_ints, key);
+			}
+			else
+			if ( prefix_match(reqs, "struct") )
+			{
+				struct passwd *pw;
+				if ( to_uint_arg(key, &id) )
+				{
+					uid_t  uid = id;
+					err = nfsutil_getpwuid_struct(&pw, uid);
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test passwd struct", "user with ID", key, "", "", "");
+				}
+				else
+				{
+					err = nfsutil_getpwnam_struct(&pw, key);
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test passwd struct", "user name", key, "", "", "");
+				}
+
+				if ( !err )
+					print_passwd(pw, key);
+			}
+			else
+			{
+				printf("ERROR: 2nd argument must be either 'ints' or 'struct'.\n");
+				return 1;
+			}
+		}
+		else
+		if ( prefix_match(table, "group") )
+		{
+			int err;
+			if ( prefix_match(reqs, "ints") )
+			{
+				struct nfsutil_group_ints  grp_ints;
+				if ( to_uint_arg(key, &id) )
+				{
+					gid_t  gid = id;
+					grp_ints = nfsutil_getgrgid_ints(gid);
+					err = grp_ints.err;
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test group ints", "group with ID", key, "", "", "");
+				}
+				else
+				{
+					grp_ints = nfsutil_getgrnam_ints(key);
+					err = grp_ints.err;
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test group ints", "group name", key, "", "", "");
+				}
+
+				if ( !err )
+					print_group_ints(grp_ints, key);
+			}
+			else
+			if ( prefix_match(reqs, "struct") )
+			{
+				struct group *grp;
+				if ( to_uint_arg(key, &id) )
+				{
+					gid_t  gid = id;
+					err = nfsutil_getgrgid_struct(&grp, gid);
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test group struct", "group with ID", key, "", "", "");
+				}
+				else
+				{
+					err = nfsutil_getgrnam_struct(&grp, key);
+					if ( err )
+						nfsidmap_print_pwgrp_error(err, "pwgrp_test group struct", "group name", key, "", "", "");
+				}
+
+				if ( !err )
+					print_group(grp, key);
+			}
+			else
+			{
+				printf("ERROR: 2nd argument must be either 'ints' or 'struct'.\n");
+				return 1;
+			}
+		}
+		else
+		{
+			printf("ERROR: 1st argument must be either 'passwd' or 'group'.\n");
+			return 1;
+		}
+	}
+	else
 	{
 		printf("ERROR: Need one or two arguments.\n");
 		printf("\n");
 		printf("Usage:\n");
-		printf("    pwgrp_test  [passwd|group]  [name|uid|gid]\n");
 		printf("    pwgrp_test  [login_name]\n");
+		printf("    pwgrp_test  [passwd|group]  [name|uid|gid]\n");
+		printf("    pwgrp_test  [passwd|group]  [ints|struct]  [name|uid|gid]\n");
 		printf("\n");
 		return 1;
 	}
