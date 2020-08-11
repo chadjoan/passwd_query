@@ -1182,7 +1182,6 @@ static size_t escape_fmtspec_inplace(char *bufptr, size_t buflen)
 
 	size_t newlen = 0;
 
-	printf("escape_fmtspec_inplace(\"%s\",%ld)\n", bufptr, buflen);
 	if ( bufptr == NULL || buflen == 0 )
 		return 0;
 
@@ -1190,24 +1189,17 @@ static size_t escape_fmtspec_inplace(char *bufptr, size_t buflen)
 
 	// Pass 1: count the replacements and find the '\0' byte.
 	i = 0; j = 0;
-	printf("[bufend] == [%ld]\n", bufend);
-	printf("Pass 1:\n");
 	while(j < bufend)
 	{
 		char ch = bufptr[i];
-		printf("  bufptr[%ld] == %c; j == %ld;", i, ch, j);
-		if ( ch == '\0' ) {
-			printf(" 'break' hit; exiting loop.\n");
+		if ( ch == '\0' )
 			break;
-		}
 
-		//i++; j++;
 		if ( ch == '%' ) {
 			if ( j == bufend-2 ) {
 				// Allocate space for "%%\0" if near end.
 				bufptr[++i] = '\0';
 				j += 2;
-				printf("j==be-2 cornercase: bufptr[%ld] <- '\\0'; j == %ld.\n", i, j);
 				break;
 			}
 			else
@@ -1215,7 +1207,6 @@ static size_t escape_fmtspec_inplace(char *bufptr, size_t buflen)
 				// There's no room for "%%\0", so drop this '%'.
 				// Just make sure we can put "\0".
 				bufptr[i] = '\0';
-				printf("j==be-1 cornercase: bufptr[%ld] <- '\\0'; j == %ld.\n", i, j);
 				break;
 			}
 			else {
@@ -1227,56 +1218,21 @@ static size_t escape_fmtspec_inplace(char *bufptr, size_t buflen)
 			// Normalcy.
 			i++; j++;
 		}
-		if ( j >= bufend )
-			printf(" j (%ld) >= bufend (%ld); exiting loop.\n", j, bufend);
-		else
-			printf(" ...\n");
 	}
-
-	/*
-	// Corner-cases: what if the buffer is too small to handle the resulting
-	// string after substition?
-	if ( j >= bufend ) {
-		printf("j>=be cornercase; bufptr[%ld] <- '\\0'.\n", i);
-		// This means that we either need to truncate the result, or that
-		// we're close to that and (bufptr[i] == '\0'). Either way, it can
-		// only help to ensure that the character at the end of the new string
-		// is '\0'.
-		bufptr[i-1] = '\0';
-		printf("j>=be cornercase; j (%ld) <- bufend (%ld).\n", j, bufend);
-		// The only way that (j > bufend) can happen is if the last character
-		// was '%'. In that case, we just changed the '%' to '\0', so it should
-		// adjust to (j == bufend) and not be out-of-range anymore.
-		// Just set it to 'bufend' to reflect that.
-		j = bufend;
-
-		// We could have instead reduced the number of replacements, but that
-		// could be even more dangerous, since we are protecting against
-		// formatters trying to substitute with arguments that don't exist.
-	}
-	*/
 
 	newlen = j;
 
 	// Pass 2: work backwards to shift everything into its final place while
 	//   filling the gaps with the substituted characters.
-	printf("Pass 2, with j==%ld and i==%ld:\n", j, i);
 	while ( j > i )
 	{
 		char ch = bufptr[i--];
 		bufptr[j--] = ch;
-		printf("  bufptr[%ld] <- '%c' <- bufptr[%ld]\n", j+1, ch, i+1);
-		if ( ch == '%' ) {
+		if ( ch == '%' )
 			bufptr[j--] = '%';
-			printf("  bufptr[%ld] <- '%%'\n", j+1);
-		}
 	}
 	// assert( i == j );
 	// assert( i >= 0 );
-	printf("  Loop concluded. j==%ld, i==%ld.\n", j, i);
-	printf("\n");
-	printf("Output: \"%s\"\n", bufptr);
-	printf("\n");
 
 	return newlen;
 }

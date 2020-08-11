@@ -140,46 +140,6 @@ static void example_print_group(const char *group_name)
 	return;
 }
 
-#define  RESPONSE_SUCCESS  (0)
-#define  RESPONSE_ABORT    (1)
-#define  RESPONSE_RETRY    (2)
-
-int handle_errors(int pwgrp_return_code, const char *function_name)
-{
-	int err = pwgrp_return_code;
-	if ( err == 0 )
-		return RESPONSE_SUCCESS;
-	if ( err == EINTR )
-		return RESPONSE_RETRY;
-
-	if ( err == EIO )
-		printf("I/O error during %s: %s\n", function_name, strerror(err));
-	else
-		printf("Unhandled error from %s: %s\n", function_name, strerror(err));
-
-	return RESPONSE_ABORT;
-}
-
-#define  HANDLE_ERRORS(return_code, cleanup_stmt) \
-	int response = handle_errors(err, __FUNCTION__); \
-	if ( response == RESPONSE_RETRY ) \
-		continue; \
-	else \
-	if ( response == RESPONSE_ABORT ) \
-	{ \
-		cleanup_stmt; \
-		return; \
-	} \
-	else \
-	if ( response == RESPONSE_SUCCESS ) \
-		break; \
-	else \
-	{ \
-		printf("Invalid return code %d from 'handle_errors(%d)'.", response, err); \
-		cleanup_stmt; \
-		return; \
-	}
-
 void print_group(struct group *grp, const char *key)
 {
 	if ( grp == NULL )
