@@ -687,6 +687,41 @@ struct nfsutil_group_ints
 int nfsutil_getgrnam_struct(struct group **grp, const char *group_name);
 int nfsutil_getgrgid_struct(struct group **grp,  gid_t gid); /// ditto
 
+/// The `nfsutil_getgrouplist_by_uid` function is similar to the linux/glibc
+/// `getgrouplist` function, except that it accepts a user ID instead of a
+/// user name, and returns error codes instead of `-1` or a count value.
+///
+/// This method is useful in cases where a user's `uid` and (optionally) `gid`
+/// are available, but it is inconvenient to set up an `nfsutil_passwd_query`
+/// object just to get `pw->pw_name` or otherwise allocate memory for
+/// a `passwd` struct to get the user's name.
+///
+/// By default, the `user_gid` parameter of this will behave exactly like the
+/// corresponding parameter in `getgrouplist`. That is, the `user_gid` parameter
+/// will override any gid retrieved along with the user's name, because this
+/// allows `nfsutil_getgrouplist_by_uid` to behave more like the `getgrouplist`
+/// function. There is one exception: passing a value of `(gid_t)(-1)` will
+/// cause `nfsutil_getgrouplist_by_uid` to use the given user's gid found
+/// in the `passwd` database when calling `getgrouplist`. This makes it possible
+/// to use this function without having the gid beforehand and without issuing
+/// extra `passwd` queries to resolve such a situation.
+///
+/// Because this calls `nfsutil_pw_query_call_getpwuid_r` internally, this
+/// may return all of the error codes that that function can return. As such,
+/// this *does not* return the same return values that `getgrouplist` returns.
+/// Instead, if the call to `nfsutil_pw_query_call_getpwuid_r` succeeded but
+/// `getgrouplist` returned `-1`, then this function will return `ERANGE`
+/// to indicate that `*groups` and `*ngroups` were not large enough to store
+/// the results. `getgrouplist`'s zero and positive return values were all
+/// redundant with `*ngroups`, so just use `*ngroups` to know how many groups
+/// were returned. Additionally, `ENOENT` will be returned if `getpwuid_r`
+/// could not find an entry corresponding to the given `user_uid`.
+///
+int nfsutil_getgrouplist_by_uid(
+		uid_t user_uid, gid_t user_gid,
+		gid_t *groups, int *ngroups
+	);
+
 /// `nfsidmap_print_pwgrp_error` prints error messages resulting from
 /// `get**nam_r` and `get***id_r` functions using the following format:
 /// "${in_function}: Error happened while looking up ${key_name} '${key_value}'"

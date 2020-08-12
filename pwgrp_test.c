@@ -1,5 +1,7 @@
 
 #include <errno.h>
+#include <grp.h>
+#include <limits.h> // NGROUPS_MAX
 #include <pwd.h>
 #include <stdlib.h>
 #include <stdio.h>
@@ -9,6 +11,12 @@
 #include <sys/types.h>
 
 #include "passwd_query.h"
+
+// Call the given function until its return code (stored in the `err` macro
+// parameter) is not equal to EINTR. This essentially retries the function
+// whenever an interrupt causes it to exit.
+#define EINTR_LOOP(err, function_expr) \
+	do { err = (function_expr); } while (err == EINTR);
 
 static const char *null_alt(const char *str, const char *alt)
 {
@@ -496,6 +504,58 @@ int main(int argc, const char **argv)
 				print_passwd_from_name(key);
 		}
 		else
+		if ( prefix_match(table, "grouplist") )
+		{
+			const char *key_desc = "";
+			struct nfsutil_passwd_ints  pw_ints;
+			if ( to_uint_arg(key, &id) )
+			{
+				uid_t  uid = id;
+				pw_ints = nfsutil_getpwuid_ints(uid);
+				key_desc = "user with uid";
+			}
+			else
+			{
+				pw_ints = nfsutil_getpwnam_ints(key);
+				key_desc = "user name";
+			}
+
+			int err = pw_ints.err;
+			if ( err )
+				nfsidmap_print_pwgrp_error(err, "pwgrp_test grouplist",
+					key_desc, key, "", "", "");
+			else
+			{
+				uid_t user_uid = pw_ints.uid;
+				gid_t user_gid = pw_ints.gid;
+				gid_t groups_buf[NGROUPS_MAX+1];
+				int   ngroups = NGROUPS_MAX+1;
+				gid_t *groups = groups_buf;
+				int need_free = 0;
+				EINTR_LOOP(err, nfsutil_getgrouplist_by_uid(user_uid, user_gid, groups, &ngroups));
+				if ( err == ERANGE )
+				{
+					groups = malloc(ngroups * sizeof(gid_t));
+					EINTR_LOOP(err, nfsutil_getgrouplist_by_uid(user_uid, user_gid, groups, &ngroups));
+					need_free = 1;
+				}
+
+				if ( err )
+					nfsidmap_print_pwgrp_error(err, "pwgrp_test grouplist",
+						key_desc, key, "", "", "");
+				else {
+					printf("Grouplist for %s '%s':\n", key_desc, key);
+					size_t i;
+					for ( i = 0; i < ngroups; i++ )
+						printf("  %d\n", groups[i]);
+					printf("\n");
+				}
+
+				if ( need_free )
+					free(groups);
+			}
+		}
+		else
 		if ( prefix_match(table, "group") )
 		{
 			if ( to_uint_arg(key, &id) )
@@ -508,7 +568,7 @@ int main(int argc, const char **argv)
 		}
 		else
 		{
-			printf("ERROR: 1st argument must be either 'passwd' or 'group'.\n");
+			printf("ERROR: 1st argument must be either 'passwd', 'group', or 'grouplist'.\n");
 			return 1;
 		}
 	}

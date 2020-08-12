@@ -1134,7 +1134,42 @@ int nfsutil_getgrgid_struct(struct group **grp,  gid_t gid)
 	return grp_ints.err;
 }
 
+// See header for documentation.
+int nfsutil_getgrouplist_by_uid(
+		uid_t user_uid, gid_t user_gid,
+		gid_t *groups, int *ngroups
+	)
+{
+	char    bufptr[PASSWD_STACKMEM_SIZE_HINT];
+	size_t  buflen = PASSWD_STACKMEM_SIZE_HINT;
+	struct  nfsutil_passwd_query  passwd_query;
+	struct  passwd                *pw = NULL;
 
+	nfsutil_pw_query_init(&passwd_query, bufptr, buflen);
+
+	int err = nfsutil_pw_query_call_getpwuid_r(&passwd_query, user_uid);
+	pw = nfsutil_pw_query_result(&passwd_query);
+
+	if ( !err && pw == NULL )
+		err = ENOENT;
+	else
+	if ( !err && pw != NULL ) {
+		const char *user_name = pw->pw_name;
+		if ( user_gid == (gid_t)(-1) )
+			user_gid = pw->pw_gid;
+
+		int rc = getgrouplist(user_name, user_gid, groups, ngroups);
+		if ( rc < 0 )
+			err = ERANGE;
+
+		// The caller is responsible for checking the outgoing results
+		// given by the arguments.
+	}
+
+	nfsutil_pw_query_cleanup(&passwd_query);
+
+	return err;
+}
 
 
 // This is like strlen, except that it doubles the cost of every '%'
@@ -1362,6 +1397,8 @@ static void nfsidmap_print_oom_error(
 #endif
 }
 
+// See header for documentation.
+//
 // `nfsidmap_print_pwgrp_error` prints error messages resulting from
 // `get**nam_r` and `get***id_r` functions, (usually) using the following format:
 // "${in_function}: Error happened while looking up ${key_name} '${key_value}'"
@@ -1386,7 +1423,7 @@ void nfsidmap_print_pwgrp_error(
 	// Print errors.
 	if ( err == ENOENT || err == -ENOENT )
 		IDMAP_LOG(0, ("%s: "
-			"Entry does not exist: %s '%s'%s%s%s not found",
+			"Error while looking up %s '%s'%s%s%s: not found",
 			in_function, key_name, key_value,
 			rel_entry_before, rel_entry_value, rel_entry_after));
 	else
@@ -1420,7 +1457,7 @@ void nfsidmap_print_pwgrp_error(
 	{
 		const char *errfmtstr = "%s: "
 			"Error while looking up %s '%s'%s%s%s: "
-			"Out of memory (OOM); memory allocation failed.";
+			"Out of memory (OOM); memory allocation failed; no memory.";
 
 		size_t fmtmemsize = format_expansion_length(errfmtstr);
 		fmtmemsize += format_expansion_length(in_function);
