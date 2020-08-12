@@ -860,7 +860,6 @@ struct group *nfsutil_copy_group(
 		grp_to->gr_mem = NULL;
 	else
 	{
-		char *cursor_before = cursor;
 		char **members_from = grp_from->gr_mem;
 		char **members_to   = (char**)cursor;
 
@@ -1213,7 +1212,6 @@ static size_t escape_fmtspec_inplace(char *bufptr, size_t buflen)
 {
 	ssize_t i; // Index on `bufptr` before substitution.
 	ssize_t j; // Index on `bufptr` after substitution.
-	ssize_t replacement_count = 0;
 
 	size_t newlen = 0;
 
