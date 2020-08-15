@@ -948,7 +948,6 @@ static struct nfsutil_passwd_ints
 	size_t  buflen = PASSWD_STACKMEM_SIZE_HINT;
 	struct  nfsutil_passwd_query  passwd_query;
 	struct  passwd                *pw_tmp = NULL;
-	struct  nfsutil_passwd_ints   results_lite;
 
 	nfsutil_pw_query_init(&passwd_query, bufptr, buflen);
 
@@ -974,27 +973,24 @@ static struct nfsutil_passwd_ints
 	}
 
 	// Populate the returnable results structure.
-	int found;
+	struct  nfsutil_passwd_ints   pw_ints = nfsutil_passwd_ints_init;
+	int found = 0;
 	if ( pw_tmp ) {
-		results_lite.uid = pw_tmp->pw_uid;
-		results_lite.gid = pw_tmp->pw_gid;
+		pw_ints.uid = pw_tmp->pw_uid;
+		pw_ints.gid = pw_tmp->pw_gid;
 		found = 1;
-	} else {
-		results_lite.uid = (uid_t)(-1);
-		results_lite.gid = (gid_t)(-1);
-		found = 0;
 	}
 
 	if ( err == 0 && !found ) // No errors, it just wasn't found.
-		results_lite.err = ENOENT;
+		pw_ints.err = ENOENT;
 	else
-		results_lite.err = err;
+		pw_ints.err = err;
 
 	// It is always safe to call the cleanup function as long as we're done
 	// with the query object.
 	nfsutil_pw_query_cleanup(&passwd_query);
 
-	return results_lite;
+	return pw_ints;
 }
 
 struct nfsutil_passwd_ints
@@ -1059,7 +1055,6 @@ static struct nfsutil_group_ints
 	size_t  buflen = GROUP_STACKMEM_SIZE_HINT;
 	struct  nfsutil_group_query  group_query;
 	struct  group                *grp_tmp = NULL;
-	struct  nfsutil_group_ints   results_lite;
 
 	nfsutil_grp_query_init(&group_query, bufptr, buflen);
 
@@ -1085,25 +1080,23 @@ static struct nfsutil_group_ints
 	}
 
 	// Populate the returnable results structure.
-	int found;
+	struct  nfsutil_group_ints   grp_ints = nfsutil_group_ints_init;
+	int found = 0;
 	if ( grp_tmp ) {
-		results_lite.gid = grp_tmp->gr_gid;
+		grp_ints.gid = grp_tmp->gr_gid;
 		found = 1;
-	} else {
-		results_lite.gid = (gid_t)(-1);
-		found = 0;
 	}
 
 	if ( err == 0 && !found ) // No errors, it just wasn't found.
-		results_lite.err = ENOENT;
+		grp_ints.err = ENOENT;
 	else
-		results_lite.err = err;
+		grp_ints.err = err;
 
 	// It is always safe to call the cleanup function as long as we're done
 	// with the query object.
 	nfsutil_grp_query_cleanup(&group_query);
 
-	return results_lite;
+	return grp_ints;
 }
 
 struct nfsutil_group_ints
