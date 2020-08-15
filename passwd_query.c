@@ -912,6 +912,21 @@ int nfsutil_clone_group(
 	return 0;
 }
 
+
+const struct nfsutil_passwd_ints
+	nfsutil_passwd_ints_init = {
+		.uid = (uid_t)(-1),
+		.gid = (gid_t)(-1),
+		.err = 0
+	};
+
+
+const struct nfsutil_group_ints
+	nfsutil_group_ints_init = {
+		.gid = (gid_t)(-1),
+		.err = 0
+	};
+
 // Calls the appropriate `getpw***_r` function according to `key` and `key_is_name`.
 // The returned struct has the `uid` and `gid` fields set according to whatever
 // is found using `getpw***_r`, or are set to (uid_t)(-1) or (gid_t)(-1) if

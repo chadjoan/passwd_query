@@ -561,6 +561,17 @@ struct nfsutil_passwd_ints
 	int    err;
 };
 
+/// An initial value for `nfsutil_passwd_ints` variables that sets
+/// `uid` to `(uid_t)(-1)` and `gid` to `(gid_t)(-1)` and `err` to `0`.
+///
+/// If an `nfsutil_passwd_ints` struct isn't populated (e.g. by holding the
+/// return value of a function) at the point of its declaration, then it
+/// should be initialized with this constant value. This avoids the
+/// possibility of an uninitialized `nfsutil_passwd_ints` struct introducing
+/// misleading data after being returned/passed several times.
+///
+extern const struct nfsutil_passwd_ints  nfsutil_passwd_ints_init;
+
 /// Structure used by functions that return only gid information
 /// for a group query.
 struct nfsutil_group_ints
@@ -568,6 +579,17 @@ struct nfsutil_group_ints
 	gid_t  gid;
 	int    err;
 };
+
+/// An initial value for `nfsutil_group_ints` variables that sets
+/// `gid` to `(gid_t)(-1)` and `err` to `0`.
+///
+/// If an `nfsutil_group_ints` struct isn't populated (e.g. by holding the
+/// return value of a function) at the point of its declaration, then it
+/// should be initialized with this constant value. This avoids the
+/// possibility of an uninitialized `nfsutil_group_ints` struct introducing
+/// misleading data after being returned/passed several times.
+///
+extern const struct nfsutil_group_ints  nfsutil_group_ints_init;
 
 /// Convenience functions that retrieve the uid and gid associated with the
 /// given `user_name` or `uid`.
